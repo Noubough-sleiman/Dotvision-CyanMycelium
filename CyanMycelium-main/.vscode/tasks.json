@@ -1,0 +1,52 @@
+{
+  "tasks": [
+    {
+      "label": "Compile Release",
+      "type": "shell",
+      "command": "mingw32-make",
+      "args": ["compile"],
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Clean Release",
+      "type": "shell",
+      "command": "mingw32-make",
+      "args": ["clean"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Recompile Release",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Clean Release", "Compile Release"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Compile Debug",
+      "type": "shell",
+      "command": "mingw32-make",
+      "args": ["compile", "DEBUG=true"],
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Clean Debug",
+      "type": "shell",
+      "command": "mingw32-make",
+      "args": ["DEBUG=true", "clean"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Debug",
+      "type": "shell",
+      "command": "mingw32-make",
+      "args": ["V=1", "link", "DEBUG=true"],
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Recompile Debug",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Clean Debug", "Compile Debug"],
+      "problemMatcher": []
+    }
+  ],
+  "version": "2.0.0"
+}
