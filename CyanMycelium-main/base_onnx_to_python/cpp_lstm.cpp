@@ -14,7 +14,7 @@
 class LSTMNode {
 public:
     LSTMNode(int batch_size, int hidden_size) : batch_size(batch_size), hidden_size(hidden_size) {
-        initializeWeights();
+        //initializeWeights();
         initializeState();
     }
 
@@ -27,22 +27,98 @@ public:
     std::vector<std::vector<double>> forward(const std::vector<std::vector<double>>& input) {
         // Calcul des portes d'entrée, de sortie et d'oubli     
 
-        std::vector<std::vector<double>> input_gate = sigmoid(addMatrices(dotProduct(input, transposeMatrix(Wi)), dotProduct(state, transposeMatrix(Ri)))); 
-        std::vector<std::vector<double>> forget_gate = sigmoid(addMatrices(dotProduct(input, transposeMatrix(Wf)), dotProduct(state, transposeMatrix(Rf))));
-        std::vector<std::vector<double>> output_gate = sigmoid(addMatrices(dotProduct(input, transposeMatrix(Wo)), dotProduct(state, transposeMatrix(Ro)))); 
+        std::vector<std::vector<double>> input_gate = sigmoid(addMatrices(dotProduct(input, transposeMatrix(Wi)), dotProduct(hidden_state, transposeMatrix(Ri)))); 
+        std::vector<std::vector<double>> forget_gate = sigmoid(addMatrices(dotProduct(input, transposeMatrix(Wf)), dotProduct(hidden_state, transposeMatrix(Rf))));
+        std::vector<std::vector<double>> Curent_state =  tanh(addMatrices(dotProduct(input, transposeMatrix(Wc)), dotProduct(hidden_state,  transposeMatrix(Rc))));
+        std::vector<std::vector<double>> Update_Cell_state = addMatrices(multiplyMatrices(forget_gate, cell_state), multiplyMatrices(input_gate, Curent_state));        
+        std::vector<std::vector<double>> output_gate = sigmoid(addMatrices(dotProduct(input, transposeMatrix(Wo)), dotProduct(hidden_state, transposeMatrix(Ro)))); 
 
-        // Calcul de l'état caché mis à jour
-        std::vector<std::vector<double>> updated_state = addMatrices(multiplyMatrices(forget_gate, state), multiplyMatrices(input_gate, tanh(addMatrices(dotProduct(input, transposeMatrix(Wc)), dotProduct(state,  transposeMatrix(Rc))))));
-        state = multiplyMatrices(output_gate, tanh(updated_state));
-        return state;
+        hidden_state = multiplyMatrices(output_gate, tanh(Update_Cell_state));
+        return hidden_state;
+        
+        
+    }
+
+    /**
+     * @brief Effectue un passage avant (forward pass) à travers le noeud LSTM version ameliorer.
+     * 
+     * @param input Matrice représentant les entrées.
+     * @return std::vector<std::vector<double>> Matrice représentant l'état caché mis à jour.
+     */
+    std::vector<std::vector<double>> forward(const std::vector<std::vector<double>>& input, std::vector<std::vector<double>>& W, std::vector<std::vector<double>>& R, std::vector<double> B, std::vector<std::vector<double>> initial_h, std::vector<std::vector<double>> initial_c,  std::vector<std::vector<double>> P ) {
+        // Ce code traite la matrice input comme un seul bloc de données
+        // Il ne divise pas X en sous-matrices ni n'itère sur chaque ligne comme dans certains cas en Python où le code tente de diviser le tableau X en sous-tableaux. 
+        // Par conséquent, toutes les opérations sont faites sur la matrice entière en tant qu'unité.
+ 
+        // Calcul des portes d'entrée, de sortie et d'oubli     
+        std::vector<std::vector<double>> gates = addMatrices(dotProduct(input, transposeMatrix(W)), dotProduct(hidden_state, transposeMatrix(R))); 
+
+  
+        std::vector<std::vector<std::vector<double>>> gates_temp = {gates};
+        std::vector<std::vector<std::vector<double>>> splitted = splitTensor(gates_temp, 4);
+        
+        std::vector<double> p_i, p_o, p_f; 
+        std::tie(p_i, p_o, p_f) = splitTensor_x(P);
+
+        std::vector<std::vector<double>> temp_pi = expand_vector_to_matrix(p_i, initial_c.size() ) ;
+        std::vector<std::vector<double>> temp_pf = expand_vector_to_matrix(p_f, initial_c.size() ) ;
+     
+        std::vector<std::vector<double>> input_gate =  sigmoid(addMatrices(expand_matrix(splitted[0] , batch_size,  hidden_size), multiplyMatrices(temp_pi, initial_c  ) ));
+        std::vector<std::vector<double>> forget_gate = sigmoid(addMatrices(expand_matrix(splitted[2] , batch_size,  hidden_size), multiplyMatrices(temp_pf, initial_c  )));
+        std::vector<std::vector<double>> cell_gate = tanh(expand_matrix(splitted[3] , batch_size,  hidden_size));
+        std::vector<std::vector<double>> Update_Cell_state = addMatrices(multiplyMatrices(forget_gate, cell_state), multiplyMatrices(input_gate, cell_gate));        
+
+        std::vector<std::vector<double>> temp_po = expand_vector_to_matrix(p_o, Update_Cell_state.size() ) ; // est ce que p_o est toujours vecteur?
+ 
+        std::vector<std::vector<double>> output_gate = sigmoid(addMatrices(expand_matrix(splitted[1] , batch_size,  hidden_size), multiplyMatrices(temp_po, Update_Cell_state)));
+        hidden_state = multiplyMatrices(output_gate, tanh(Update_Cell_state));
+
+        return hidden_state;
+
+        
+        
+    }
+
+    // Méthode run avec des paramètres par défaut
+    std::pair<std::vector<std::vector<double>>, std::vector<std::vector<double>>>
+    run(const std::vector<std::vector<double>>& X,
+        std::vector<std::vector<double>>& W,
+        std::vector<std::vector<double>>& R,
+        std::vector<std::vector<double>>& P,
+        std::vector<double> B = {},
+        std::vector<std::vector<double>> initial_h = {},
+        std::vector<std::vector<double>> initial_c = {},
+        int hidden_size = 0,
+        int batch_size= 0) {
+        
+        
+        // Traitement des valeurs par défaut si nécessaire
+        if (B.empty()) {
+            B = std::vector<double>(2 * 4 * this->hidden_size, 0.); // Initialisation par défaut
+        }
+        /*if (P.empty()) {
+            P = std::vector<double>(3 * this->hidden_size, 0.); // Initialisation par défaut
+        }*/
+        if (initial_h.empty()) {
+            initial_h = std::vector<std::vector<double>>(batch_size, std::vector<double>(this->hidden_size, 0.));
+        }
+        if (initial_c.empty()) {
+            initial_c = std::vector<std::vector<double>>(batch_size, std::vector<double>(this->hidden_size, 0.));
+        }
+    
+        std::vector<std::vector<double>> output = forward(X, W, R, B, initial_c, initial_c, P);
+
+        // Implémentez ici la logique de votre LSTM
+        std::vector<std::vector<double>> final_hidden_state =output; // Calculer l'état final
+
+        // Pour l'exemple, renvoyer des matrices vides
+        return std::make_pair(output, final_hidden_state);
     }
 
 private:
     int batch_size;
-    //int input_rows;
-    //int input_cols;
     int hidden_size;
-    std::vector<std::vector<double>> state;  /**< Matrice représentant l'état caché. */
+    std::vector<std::vector<double>> hidden_state, cell_state;  /**< Matrice représentant l'état caché et current. */
     std::vector<std::vector<double>> Wi, Wf, Wo, Wc; /**< Matrices de poids pour les différentes portes (input, forget, output, cell). */
     std::vector<std::vector<double>> Ri, Rf, Ro, Rc; /**< Matrices de poids récurrents pour les différentes portes (input, forget, output, cell). */
 
@@ -89,18 +165,16 @@ private:
      * @brief Initialise l'état caché.
      */
     void initializeState() {
-        
-        state = std::vector<std::vector<double>>(batch_size, std::vector<double>(hidden_size, 0.0));
+
+        hidden_state = std::vector<std::vector<double>>(batch_size, std::vector<double>(hidden_size, 0.0));
+        cell_state = std::vector<std::vector<double>>(batch_size, std::vector<double>(hidden_size, 0.0));
 
         //Affichage de la matrice h
-        std::cout << "state Matrix : " << std::endl;
-        for (int i = 0; i < batch_size; ++i) {
-            for (int j = 0; j < hidden_size; ++j) {
-                std::cout << state[i][j] << " ";
-            }
-            std::cout << std::endl;
-        }
+        std::cout << "Hidden_state Matrix : " << std::endl;
+        printMatrix(hidden_state); 
+  
     }
+
     /**
      * @brief Fonction d'activation sigmoid.
      */
@@ -253,6 +327,81 @@ private:
 
     return transposed;
     }
+
+
+    // Fonction pour diviser le tensor en 4 parties égales le long de la dernière dimension = equivalent a split du python
+    std::vector<std::vector<std::vector<double>>> splitTensor(const std::vector<std::vector<std::vector<double>>>& gates, int n) {
+        int rows = gates.size();
+        int cols = gates[0].size();
+        int channels = gates[0][0].size();
+
+        std::vector<std::vector<std::vector<double>>> result(n, std::vector<std::vector<double>>(rows, std::vector<double>(cols)));
+
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                for (int k = 0; k < channels; ++k) {
+                    result[k][i][j] = gates[i][j][k];
+                }
+            }
+        }
+
+        return result;
+    }
+
+
+    // Fonction pour adapter les dimensions de la matrice `i` pour qu'elles correspondent à celles de `p_i_C_t`
+    std::vector<std::vector<double>> expand_matrix(std::vector<std::vector<double>>& i, int batch_size, int hidden_size) {
+        size_t new_rows = batch_size;//p_i_C_t.size();
+        size_t new_cols = hidden_size; //p_i_C_t[0].size();
+
+        std::vector<std::vector<double>> expanded_i(new_rows, std::vector<double>(new_cols, 0.0));
+
+        for (size_t row = 0; row < new_rows; ++row) {
+            for (size_t col = 0; col < new_cols; ++col) {
+                 expanded_i[row][col] = i[row % i.size()][row / i.size()];
+            }
+        }
+        return expanded_i;
+    }
+
+    void printMatrix(const std::vector<std::vector<double>>& matrix) {
+        for (size_t i = 0; i < matrix.size(); ++i) {
+            for (size_t j = 0; j < matrix[i].size(); ++j) {
+                std::cout << matrix[i][j] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>> splitTensor_x(const std::vector<std::vector<double>>& P) {
+        int rows = P.size();
+        if (rows != 3) {
+            throw std::invalid_argument("Le nombre de lignes doit être égal à 3");
+        }
+
+        std::vector<double> p_i = P[0];
+        std::vector<double> p_o = P[1];
+        std::vector<double> p_f = P[2];
+
+        return std::make_tuple(p_i, p_o, p_f);
+    }
+
+    std::vector<std::vector<double>> expand_vector_to_matrix(const std::vector<double>& vec, int duplication_factor) {
+    std::vector<std::vector<double>> expanded_matrix;
+
+    // Vérifier que le facteur de duplication est valide
+    if (duplication_factor <= 0) {
+        throw std::invalid_argument("Le facteur de duplication doit être supérieur à 0.");
+    }
+
+    // Dupliquer le vecteur pour créer les lignes de la matrice
+    for (int i = 0; i < duplication_factor; ++i) {
+        expanded_matrix.push_back(vec);
+    }
+
+    return expanded_matrix;
+}
 
 };
 
